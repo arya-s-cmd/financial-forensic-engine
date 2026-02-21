@@ -35,29 +35,27 @@ Evidence tags: `layered_shell_chain` + role tags (`source_funds`, `low_activity_
 
 ## Architecture
 
-CSV Transactions
-   |
-   v
-[Parse & Normalize]  -> strict schema + timestamp normalization
-   |
-   v
-[Build Directed Graph]
-   |----------------------|------------------------|
-   v                      v                        v
-[Cycle Detector]     [Smurfing Detector]     [Layering Detector]
-(3–5 hops)           (fan-in/fan-out)        (shell-chain rules)
-   |                      |                        |
-   |----------------------|------------------------|
-   v
-[Merge / Deduplicate Findings]
-   |
-   v
-[Scoring]
-(ring risk + account suspicion)
-   |
-   v
-[Explainable JSON Output]  <->  [Investigation UI]
-                               (tables + interactive graph)
+### High-Level Diagram (ASCII)
+
+    +-------------------+        +-------------------------+
+    |   User / Analyst  |        |        Web UI          |
+    | (CSV Upload, UI)  +------->+  Next.js (App Router)  |
+    +-------------------+        +-----------+------------+
+                                            |
+                                            | POST /api/analyze
+                                            v
+                               +------------+-------------+
+                               |            API           |
+                               |   Parse -> Graph ->      |
+                               |   Detect -> Merge ->     |
+                               |   Score -> Output        |
+                               +------------+-------------+
+                                            |
+                                            v
+                               +------------+-------------+
+                               |   results.json download  |
+                               | rings + suspicious accts |
+                               +---------------------------+
 
 ### Pipeline (Data Flow)
 1. **CSV ingestion** → strict schema validation & timestamp normalization  
