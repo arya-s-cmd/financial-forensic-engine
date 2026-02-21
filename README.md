@@ -1,36 +1,123 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Financial Forensics Graph Engine (Money Muling Detection)
 
-## Getting Started
+A security-focused **graph analytics engine** that detects **money muling / laundering structures** in transaction networks using **graph theory + temporal signals + role-aware scoring**.
 
-First, run the development server:
+Built like a real detection system: **explainable detections**, **false-positive control**, and **deterministic outputs** (reproducible results).
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+---
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Why this matters (Security / Fraud / Threat Hunting)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Money muling is adversarial movement of funds through a network to obscure provenance—similar to attacker pivoting across infrastructure to hide origin. This project demonstrates practical detection engineering skills:
+- Translating adversarial behavior into **graph + temporal** signals
+- Building **explainable** detections (what triggered the flag)
+- Designing for **precision** (trap resistance) instead of naive “high-degree = fraud”
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## What it detects
 
-To learn more about Next.js, take a look at the following resources:
+### 1) Circular Fund Routing (Cycles)
+Detects directed cycles of length **3–5** (A → B → C → A). All accounts in the cycle are flagged as a ring.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 2) Smurfing (Fan-in + Fan-out + Temporal Window)
+Detects:
+- **Fan-in**: ≥10 unique senders → aggregator  
+- **Fan-out**: aggregator → ≥10 unique receivers  
+- **Temporal**: activity clustered within **72 hours**  
+Evidence tags: `smurfing_fan_in`, `smurfing_fan_out`, `temporal_72h` (+ optional `cash_out`)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 3) Layered Shell Networks (Multi-hop Chains)
+Detects **3+ hop** chains where intermediate accounts have **2–3 total transactions** (low-activity shells), plus propagation constraints to reduce false positives.  
+Evidence tags: `layered_shell_chain` + role tags (`source_funds`, `low_activity_shell`, `pre_cashout`, `cash_out`)
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Architecture
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+CSV Transactions
+   |
+   v
+[Parse & Normalize]  -> strict schema + timestamp normalization
+   |
+   v
+[Build Directed Graph]
+   |----------------------|------------------------|
+   v                      v                        v
+[Cycle Detector]     [Smurfing Detector]     [Layering Detector]
+(3–5 hops)           (fan-in/fan-out)        (shell-chain rules)
+   |                      |                        |
+   |----------------------|------------------------|
+   v
+[Merge / Deduplicate Findings]
+   |
+   v
+[Scoring]
+(ring risk + account suspicion)
+   |
+   v
+[Explainable JSON Output]  <->  [Investigation UI]
+                               (tables + interactive graph)
+
+### Pipeline (Data Flow)
+1. **CSV ingestion** → strict schema validation & timestamp normalization  
+2. **Graph construction** → adjacency + per-node/per-edge time-ordered transaction streams  
+3. **Pattern detection** → cycles, smurfing (72h), layered shells (low-activity intermediates)  
+4. **Ring consolidation** → dedup/merge near-duplicates deterministically  
+5. **Explainability + scoring** → evidence tags + role-based suspicion scoring  
+6. **Output** → ring list + suspicious accounts list + summary  
+
+---
+
+## Output (Investigator-Friendly)
+
+### Fraud Rings
+Each ring includes:
+- `ring_id`
+- `pattern_type` (`cycle` | `smurfing` | `layered_shell`)
+- `member_accounts[]`
+- `risk_score` (0–100)
+
+### Suspicious Accounts
+Each flagged account includes:
+- `account_id`
+- `suspicion_score` (0–100 float)
+- `detected_patterns[]` (evidence tags)
+- `ring_id`
+
+---
+
+## False Positive Control (Trap Resistance)
+
+High-degree hubs can be legitimate (payroll, merchants, exchanges). This engine avoids naive flags by requiring:
+- **Structure + time** (not only degree)
+- **Role constraints** (low-activity intermediates for shell networks)
+- **Propagation constraints** (time/amount adjacency in chains)
+
+---
+
+## How to Use
+1. Open the app  
+2. Upload a CSV with columns:  
+   - `transaction_id`, `sender_id`, `receiver_id`, `amount`, `timestamp`  
+3. Review:  
+   - highlighted rings in the graph  
+   - ring summary table  
+   - suspicious accounts + evidence tags  
+4. Download the JSON output  
+
+---
+
+## Security / Detection Engineering Highlights
+- Graph-based anomaly detection & adversarial pattern reasoning  
+- Temporal feature engineering (windowed bursts, propagation constraints)  
+- Explainable detections for investigation workflows  
+- Deterministic outputs for reproducibility and debugging  
+- Precision-oriented design (trap-aware false positive suppression)  
+
+---
+
+## Known Limitations / Next Improvements
+- Improve cashout inference to handle alternate cashout shapes (hub→cashout vs receiver→cashout)  
+- Add regression tests comparing output JSON against labeled expected outputs  
+- Add configurable thresholds (MIN_UNIQUE, window size, hop constraints) via ENV/UI  
